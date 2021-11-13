@@ -7,20 +7,8 @@
 #define PSARC_H__
 
 #include "file.h"
+#include "psarc_header.h"
 
-#define kPSARCMagicNumber 0x50534152	// "PSAR"
-#define HEADER_SIZE 0x20
-
-struct Header {
-	uint32_t magicNumber;
-	uint32_t versionNumber;
-	uint32_t compressionMethod;
-	uint32_t totalTOCSize;
-	uint32_t tocEntrySize;
-	uint32_t numFiles;
-	uint32_t blockSizeAlloc;
-	uint32_t archiveFlags;
-};
 
 
 struct Pack {

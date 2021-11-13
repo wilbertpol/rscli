@@ -8,9 +8,9 @@ SRCS = file.cpp psarc.cpp main.cpp
 OBJS = $(SRCS:.cpp=.o)
 DEPS = $(SRCS:.cpp=.d)
 
-all: $(OBJDIR) psarc
+all: $(OBJDIR) rscli
 
-psarc: $(addprefix $(OBJDIR)/, $(OBJS))
+rscli: $(addprefix $(OBJDIR)/, $(OBJS))
 	$(CXX) -o $@ $^ $(LDFLAGS)
 
 $(OBJDIR):
@@ -20,6 +20,6 @@ $(OBJDIR)/%.o: %.cpp
 	$(CXX) $(CXXFLAGS) -MMD -c $< -o $@
 
 clean:
-	rm -rf psarc $(OBJDIR)
+	rm -rf rscli $(OBJDIR)
 
 -include $(addprefix $(OBJDIR)/, $(DEPS))

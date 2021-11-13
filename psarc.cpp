@@ -119,34 +119,36 @@ void PSARC::read(const char *arcName, uint32_t start, uint32_t end, bool header)
 	char *fileName = basename(fileNamec);
 
 	if (_f.open(fileName, dirName)) {
-		_header.magicNumber = _f.readUint32BE(_buffer);
-		if (_header.magicNumber == kPSARCMagicNumber) {
-			_header.versionNumber = _f.readUint32BE(_buffer);
-			_header.compressionMethod = _f.readUint32BE(_buffer);
-			_header.totalTOCSize = _f.readUint32BE(_buffer);
-			_header.tocEntrySize = _f.readUint32BE(_buffer);
-			_header.numFiles = _f.readUint32BE(_buffer);
-			_header.blockSizeAlloc = _f.readUint32BE(_buffer);
-			_header.archiveFlags = _f.readUint32BE(_buffer);
-			if (_header.compressionMethod == 0x7a6c6962) {
-				printf("Header:\n");
-				printf("\tmagicNumber:       %08x\n", _header.magicNumber);
-				printf("\tversionNumer:      %08x\n", _header.versionNumber);
-				printf("\tcompressionMethod: %08x\n", _header.compressionMethod);
-				printf("\ttotalTOCSize:      %08x\n", _header.totalTOCSize);
-				printf("\ttocEntrySize:      %08x\n", _header.tocEntrySize);
-				printf("\tnumFiles:          %08x\n", _header.numFiles);
-				printf("\tblockSizeAlloc:    %08x\n", _header.blockSizeAlloc);
-				printf("\tarchiveFlags:      %08x\n", _header.archiveFlags);
+		_header.setMagicNumber(_f.readUint32BE(_buffer));
+		if (_header.isPSARC()) {
+			_header.setVersionNumber(_f.readUint32BE(_buffer));
+			_header.setCompressionMethod(_f.readUint32BE(_buffer));
+			_header.setTotalTocSize(_f.readUint32BE(_buffer));
+			_header.setTocEntrySize(_f.readUint32BE(_buffer));
+			_header.setNumFiles(_f.readUint32BE(_buffer));
+			_header.setBlockSizeAlloc(_f.readUint32BE(_buffer));
+			_header.setArchiveFlags(_f.readUint32BE(_buffer));
+
+			printf("Header:\n");
+			printf("\tmagicNumber:       %08x\n", _header.getMagicNumber());
+			printf("\tversionNumer:      %08x\n", _header.getVersionNumber());
+			printf("\tcompressionMethod: %08x\n", _header.getCompressionMethod());
+			printf("\ttotalTOCSize:      %08x\n", _header.getTotalTocSize());
+			printf("\ttocEntrySize:      %08x\n", _header.getTocEntrySize());
+			printf("\tnumFiles:          %08x\n", _header.getNumFiles());
+			printf("\tblockSizeAlloc:    %08x\n", _header.getBlockSizeAlloc());
+			printf("\tarchiveFlags:      %08x\n", _header.getArchiveFlags());
+
+			if (_header.isZlib()) {
 
 				uint8_t zType = 1;
 				uint32_t i = 256;
 				do {
 					i *= 256;
 					zType = (uint8_t)(zType + 1);
-				} while (i < _header.blockSizeAlloc);
+				} while (i < _header.getBlockSizeAlloc());
 
-				_f.seek(HEADER_SIZE);
+				_f.seek(Header::HEADER_SIZE);
 				_entries = new Pack[_numEntries];
 				for (uint32_t i = 0; i < _numEntries; i++) {
 					_f.shift(16);
@@ -160,7 +162,7 @@ void PSARC::read(const char *arcName, uint32_t start, uint32_t end, bool header)
 						);
 				}
 
-				uint32_t numBlocks = (_header.totalTOCSize - (uint32_t)_f.offset()) / zType;
+				uint32_t numBlocks = (_header.getTotalTocSize() - (uint32_t)_f.offset()) / zType;
 				uint32_t *zBlocks = new uint32_t[numBlocks];
 				for (uint32_t i = 0; i < numBlocks; i++) {
 					switch (zType) {
@@ -190,7 +192,7 @@ void PSARC::read(const char *arcName, uint32_t start, uint32_t end, bool header)
 					snprintf(baseDir, strlen(fileName) + strlen(data) + 1, "%s%s", fileName, data);
 				}
 
-				inflateEntry(0, zBlocks, _header.blockSizeAlloc, NULL, NULL);
+				inflateEntry(0, zBlocks, _header.getBlockSizeAlloc(), NULL, NULL);
 
 				if (header) {
 					char ext[] = ".txt";
@@ -251,7 +253,7 @@ void PSARC::read(const char *arcName, uint32_t start, uint32_t end, bool header)
 
 							mkpath(outDir, 0777);
 
-							inflateEntry(i, zBlocks, _header.blockSizeAlloc, outFile, outDir);
+							inflateEntry(i, zBlocks, _header.getBlockSizeAlloc(), outFile, outDir);
 
 							free(outDir);
 							free(subOutDirc);

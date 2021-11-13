@@ -11,6 +11,7 @@ public:
   static const uint32_t COMPRESSION_ZLIB = 0x7A6C6962; // "zlib"
   static const uint32_t COMPRESSION_LZMA = 0x6C7A6C61; // "lzma"
   static const uint32_t HEADER_SIZE = 0x20;
+  static const uint32_t ENCRYPTED = 0x00000004;
 
   Header()
     : magicNumber(PSARC_MAGIC_NUMBER)
@@ -50,6 +51,7 @@ public:
   bool isPSARC() const { return magicNumber == PSARC_MAGIC_NUMBER; }
   bool isZlib() const { return compressionMethod == COMPRESSION_ZLIB; }
   bool isLzma() const { return compressionMethod == COMPRESSION_LZMA; }
+  bool isTocEncrypted() const { return archiveFlags & ENCRYPTED; }
 
 private:
   uint32_t magicNumber;

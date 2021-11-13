@@ -29,6 +29,7 @@ struct File {
 	uint64_t readInt40BE(uint8_t *ptr);
 	uint16_t readUint16BE(uint8_t *ptr);
 	uint32_t readUint32BE(uint8_t *ptr);
+	void readBytes(char *ptr, uint32_t size);
 	void write(void *ptr, uint32_t size);
 };
 

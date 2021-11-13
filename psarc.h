@@ -17,6 +17,8 @@ struct Pack {
 	char *_name;
 	uint32_t _zIndex;
 	uint64_t _zOffset;
+	char _md5[16];
+	uint8_t *_data;
 };
 
 struct PSARC {
@@ -25,7 +27,6 @@ struct PSARC {
 
 	Header _header;
 	Pack *_entries;
-	uint32_t _numEntries;
 
 	PSARC();
 	~PSARC();

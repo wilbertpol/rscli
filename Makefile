@@ -3,7 +3,7 @@ CXXFLAGS = -g -O -Wall
 LDFLAGS = -lz
 
 OBJDIR = obj
-SRCS = file.cpp psarc.cpp main.cpp
+SRCS = file.cpp psarc.cpp main.cpp Rijndael.cpp
 
 OBJS = $(SRCS:.cpp=.o)
 DEPS = $(SRCS:.cpp=.d)

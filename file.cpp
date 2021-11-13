@@ -155,6 +155,10 @@ uint32_t File::readUint32BE(uint8_t *ptr) {
 	return READ_BE_UINT32(ptr);
 }
 
+void File::readBytes(char *ptr, uint32_t size) {
+	read(ptr, size);
+}
+
 void File::write(void *ptr, uint32_t size) {
 	_impl->write(ptr, size);
 }

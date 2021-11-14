@@ -17,7 +17,7 @@ struct PSARC {
 	File _f;
 	uint8_t *_buffer;
 
-	Header _header;
+	Header m_header;
 	std::vector<Entry> m_entries;
 
 	PSARC();

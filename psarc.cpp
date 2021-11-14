@@ -78,7 +78,7 @@ void PSARC::inflateEntry(uint32_t entry, uint32_t *zBlocks, uint32_t cBlockSize,
 			reader.open(basename, dirname, "r");
 
 			m_entries.at(0).setName((char*)"NamesBlock.bin");
-			for (uint32_t i = 1; i < _header.getNumFiles(); i++) {
+			for (uint32_t i = 1; i < m_header.getNumFiles(); i++) {
 				int32_t pos = reader.offset();
 				uint8_t byte = reader.readByte();
 				uint8_t count = 1;
@@ -120,50 +120,50 @@ void PSARC::read(const char *arcName, uint32_t start, uint32_t end, const bool p
 	char *fileName = basename(fileNamec);
 
 	if (_f.open(fileName, dirName)) {
-		_header.setMagicNumber(_f.readUint32BE(_buffer));
-		if (_header.isPSARC()) {
-			_header.setVersionNumber(_f.readUint32BE(_buffer));
-			_header.setCompressionMethod(_f.readUint32BE(_buffer));
-			_header.setTotalTocSize(_f.readUint32BE(_buffer));
-			_header.setTocEntrySize(_f.readUint32BE(_buffer));
-			_header.setNumFiles(_f.readUint32BE(_buffer));
-			_header.setBlockSizeAlloc(_f.readUint32BE(_buffer));
-			_header.setArchiveFlags(_f.readUint32BE(_buffer));
+		m_header.setMagicNumber(_f.readUint32BE(_buffer));
+		if (m_header.isPSARC()) {
+			m_header.setVersionNumber(_f.readUint32BE(_buffer));
+			m_header.setCompressionMethod(_f.readUint32BE(_buffer));
+			m_header.setTotalTocSize(_f.readUint32BE(_buffer));
+			m_header.setTocEntrySize(_f.readUint32BE(_buffer));
+			m_header.setNumFiles(_f.readUint32BE(_buffer));
+			m_header.setBlockSizeAlloc(_f.readUint32BE(_buffer));
+			m_header.setArchiveFlags(_f.readUint32BE(_buffer));
 
 			printf("Header:\n");
-			printf("\tmagicNumber:       %08x\n", _header.getMagicNumber());
-			printf("\tversionNumer:      %08x\n", _header.getVersionNumber());
-			printf("\tcompressionMethod: %08x\n", _header.getCompressionMethod());
-			printf("\ttotalTOCSize:      %08x\n", _header.getTotalTocSize());
-			printf("\ttocEntrySize:      %08x\n", _header.getTocEntrySize());
-			printf("\tnumFiles:          %08x\n", _header.getNumFiles());
-			printf("\tblockSizeAlloc:    %08x\n", _header.getBlockSizeAlloc());
-			printf("\tarchiveFlags:      %08x\n", _header.getArchiveFlags());
+			printf("\tmagicNumber:       %08x\n", m_header.getMagicNumber());
+			printf("\tversionNumer:      %08x\n", m_header.getVersionNumber());
+			printf("\tcompressionMethod: %08x\n", m_header.getCompressionMethod());
+			printf("\ttotalTOCSize:      %08x\n", m_header.getTotalTocSize());
+			printf("\ttocEntrySize:      %08x\n", m_header.getTocEntrySize());
+			printf("\tnumFiles:          %08x\n", m_header.getNumFiles());
+			printf("\tblockSizeAlloc:    %08x\n", m_header.getBlockSizeAlloc());
+			printf("\tarchiveFlags:      %08x\n", m_header.getArchiveFlags());
 
-			if (_header.isZlib()) {
+			if (m_header.isZlib()) {
 				uint8_t zType = 1;
 				uint32_t i = 256;
 				do {
 					i *= 256;
 					zType = (uint8_t)(zType + 1);
-				} while (i < _header.getBlockSizeAlloc());
+				} while (i < m_header.getBlockSizeAlloc());
 
 				_f.seek(Header::HEADER_SIZE);
-				uint32_t realTocSize = _header.getTotalTocSize() - Header::HEADER_SIZE;
-				char rawToc[_header.getTotalTocSize()];
-				if (_header.isTocEncrypted()) {
-					char encryptedToc[_header.getTotalTocSize()];
+				uint32_t realTocSize = m_header.getTotalTocSize() - Header::HEADER_SIZE;
+				char rawToc[m_header.getTotalTocSize()];
+				if (m_header.isTocEncrypted()) {
+					char encryptedToc[m_header.getTotalTocSize()];
 					_f.readBytes(encryptedToc, realTocSize);
 					CRijndael rijndael;
 
 					rijndael.MakeKey(PsarcKey, CRijndael::sm_chain0, 32, 16);
-  				rijndael.Decrypt(encryptedToc, rawToc, _header.getTotalTocSize() & ~31, CRijndael::CFB);
+  				rijndael.Decrypt(encryptedToc, rawToc, m_header.getTotalTocSize() & ~31, CRijndael::CFB);
 				} else {
 					_f.readBytes(rawToc, realTocSize);
 				}
 				uint32_t tocOffset = 0;
-				m_entries.reserve(_header.getNumFiles());
-				for (uint32_t i = 0; i < _header.getNumFiles(); i++) {
+				m_entries.reserve(m_header.getNumFiles());
+				for (uint32_t i = 0; i < m_header.getNumFiles(); i++) {
 					Entry entry = Entry(i);
 					char md5[16];
 					for (int j = 0; j < 16; j++) {
@@ -179,7 +179,7 @@ void PSARC::read(const char *arcName, uint32_t start, uint32_t end, const bool p
 					m_entries.push_back(entry);
 				}
 
-				uint32_t numBlocks = (_header.getTotalTocSize() - (tocOffset + Header::HEADER_SIZE)) / zType;
+				uint32_t numBlocks = (m_header.getTotalTocSize() - (tocOffset + Header::HEADER_SIZE)) / zType;
 				uint32_t *zBlocks = new uint32_t[numBlocks];
 				for (uint32_t i = 0; i < numBlocks; i++) {
 					switch (zType) {
@@ -209,10 +209,10 @@ void PSARC::read(const char *arcName, uint32_t start, uint32_t end, const bool p
 					snprintf(baseDir, strlen(fileName) + strlen(data) + 1, "%s%s", fileName, data);
 				}
 
-				inflateEntry(0, zBlocks, _header.getBlockSizeAlloc(), NULL, NULL);
+				inflateEntry(0, zBlocks, m_header.getBlockSizeAlloc(), NULL, NULL);
 
 				if (printHeader) {
-					for (uint32_t i = 1; i < _header.getNumFiles(); i++) {
+					for (uint32_t i = 1; i < m_header.getNumFiles(); i++) {
 						Entry &entry = m_entries.at(i);
 						printf("%d %" PRId64 " b %s\n", entry.getId(), entry.getLength(), entry.getName());
 					}
@@ -220,8 +220,8 @@ void PSARC::read(const char *arcName, uint32_t start, uint32_t end, const bool p
 					bool flag = true;
 					if (start == 0) {
 						start = 1;
-						end = _header.getNumFiles();
-					} else if ((start > (_header.getNumFiles() - 1)) || (end > (_header.getNumFiles() - 1))) {
+						end = m_header.getNumFiles();
+					} else if ((start > (m_header.getNumFiles() - 1)) || (end > (m_header.getNumFiles() - 1))) {
 						flag = false;
 					} else {
 						end++;
@@ -249,7 +249,7 @@ void PSARC::read(const char *arcName, uint32_t start, uint32_t end, const bool p
 
 							mkpath(outDir, 0777);
 
-							inflateEntry(i, zBlocks, _header.getBlockSizeAlloc(), outFile, outDir);
+							inflateEntry(i, zBlocks, m_header.getBlockSizeAlloc(), outFile, outDir);
 
 							free(outDir);
 							free(subOutDirc);

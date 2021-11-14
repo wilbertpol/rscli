@@ -18,11 +18,14 @@ static const char PsarcKey[32] =
 
 PSARC::PSARC() {
 	_buffer = (uint8_t *)malloc(600 * 1024);
+	baseDir = NULL;
 }
 
 PSARC::~PSARC() {
 	_f.close();
 	free(_buffer);
+	if (baseDir != NULL)
+		free(baseDir);
 }
 
 
@@ -135,7 +138,7 @@ void PSARC::exportRawEntryData(Entry& entry, char *baseDir) {
 }
 
 
-void PSARC::read(const char *arcName, uint32_t start, uint32_t end, const bool printHeader) {
+bool PSARC::read(const char *arcName) {
 	char *dirNamec = strdup(arcName);
 	char *fileNamec = strdup(arcName);
 
@@ -152,16 +155,6 @@ void PSARC::read(const char *arcName, uint32_t start, uint32_t end, const bool p
 			m_header.setNumFiles(_f.readUint32BE(_buffer));
 			m_header.setBlockSizeAlloc(_f.readUint32BE(_buffer));
 			m_header.setArchiveFlags(_f.readUint32BE(_buffer));
-
-			printf("Header:\n");
-			printf("\tmagicNumber:       %08x\n", m_header.getMagicNumber());
-			printf("\tversionNumer:      %08x\n", m_header.getVersionNumber());
-			printf("\tcompressionMethod: %08x\n", m_header.getCompressionMethod());
-			printf("\ttotalTOCSize:      %08x\n", m_header.getTotalTocSize());
-			printf("\ttocEntrySize:      %08x\n", m_header.getTocEntrySize());
-			printf("\tnumFiles:          %08x\n", m_header.getNumFiles());
-			printf("\tblockSizeAlloc:    %08x\n", m_header.getBlockSizeAlloc());
-			printf("\tarchiveFlags:      %08x\n", m_header.getArchiveFlags());
 
 			if (m_header.isZlib()) {
 				uint8_t zType = 1;
@@ -220,7 +213,6 @@ void PSARC::read(const char *arcName, uint32_t start, uint32_t end, const bool p
 					}
 				}
 
-				char *baseDir = NULL;
 				char ext[] = ".psarc";
 				if (strlen(fileName) >= 6 && strncmp(fileName + strlen(fileName) - strlen(ext), ext, strlen(ext)) == 0) {
 					baseDir = (char *)malloc(strlen(fileName) - strlen(ext) + 1);
@@ -237,41 +229,42 @@ void PSARC::read(const char *arcName, uint32_t start, uint32_t end, const bool p
 				}
 				parseTocEntry(m_entries.at(0));
 
-				if (printHeader) {
-					for (uint32_t i = 1; i < m_header.getNumFiles(); i++) {
-						Entry &entry = m_entries.at(i);
-						printf("%d %" PRId64 " b %s\n", entry.getId(), entry.getLength(), entry.getName());
-					}
-				} else {
-					bool flag = true;
-					if (start == 0) {
-						start = 1;
-						end = m_header.getNumFiles();
-					} else if ((start > (m_header.getNumFiles() - 1)) || (end > (m_header.getNumFiles() - 1))) {
-						flag = false;
-					} else {
-						end++;
-					}
-
-					if (flag) {
-						for (uint32_t i = start; i < end; i++) {
-							exportRawEntryData(m_entries.at(i), baseDir);
-						}
-					}
-				}
-
-				free(baseDir);
 				delete[] zBlocks;
 			}
-		} else
+		} else {
 			printf("Compression type is not zlib... Aborting.");
+			return false;
+		}
+		return true;
+	} else {
+		return false;
 	}
 }
 
-void PSARC::read(const char *arcName, uint32_t start, uint32_t end) {
-	read(arcName, start, end, false);
+
+void PSARC::extractAllFiles() {
+	for (uint32_t i = 1; i < m_header.getNumFiles(); i++) {
+		exportRawEntryData(m_entries.at(i), baseDir);
+	}
 }
 
-void PSARC::readHeader(const char *arcName) {
-	read(arcName, 0, 0, true);
+
+void PSARC::displayHeader() {
+	printf("Header:\n");
+	printf("\tmagicNumber:       %08x\n", m_header.getMagicNumber());
+	printf("\tversionNumer:      %08x\n", m_header.getVersionNumber());
+	printf("\tcompressionMethod: %08x\n", m_header.getCompressionMethod());
+	printf("\ttotalTOCSize:      %08x\n", m_header.getTotalTocSize());
+	printf("\ttocEntrySize:      %08x\n", m_header.getTocEntrySize());
+	printf("\tnumFiles:          %08x\n", m_header.getNumFiles());
+	printf("\tblockSizeAlloc:    %08x\n", m_header.getBlockSizeAlloc());
+	printf("\tarchiveFlags:      %08x\n", m_header.getArchiveFlags());
+}
+
+
+void PSARC::displayFileList() {
+	for (uint32_t i = 1; i < m_header.getNumFiles(); i++) {
+		Entry &entry = m_entries.at(i);
+		printf("%d %" PRId64 "b %s\n", entry.getId(), entry.getLength(), entry.getName());
+	}
 }

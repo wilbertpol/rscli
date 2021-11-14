@@ -12,22 +12,27 @@
 #include "psarc_entry.h"
 
 
-struct PSARC {
+class PSARC {
+public:
+	PSARC();
+	~PSARC();
+
+	bool read(const char *arcName);
+	void displayHeader();
+	void displayFileList();
+	void extractAllFiles();
+
+private:
+	void readEntry(Entry& entry, uint32_t *zBlocks, uint32_t cBlockSize);
+	void parseTocEntry(Entry& entry);
+	void exportRawEntryData(Entry& entry, char *baseDir);
+
 	File _f;
 	uint8_t *_buffer;
 
 	Header m_header;
 	std::vector<Entry> m_entries;
-
-	PSARC();
-	~PSARC();
-
-	void readEntry(Entry& entry, uint32_t *zBlocks, uint32_t cBlockSize);
-	void parseTocEntry(Entry& entry);
-	void exportRawEntryData(Entry& entry, char *baseDir);
-	void read(const char *arcName, uint32_t start, uint32_t end, bool header);
-	void read(const char *arcName, uint32_t start, uint32_t end);
-	void readHeader(const char *arcName);
+	char *baseDir;
 };
 
 #endif // PSARC_H__

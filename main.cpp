@@ -3,55 +3,80 @@
  * Copyright (C) 2011-2018 Matthieu Milan
  */
 
+#include <getopt.h>
 #include "psarc.h"
+
 #define VERSION "0.2 alpha"
 
 void usage() {
-	printf("Usage: psarc [option] filename\n");
-	printf("Options:\n");
-	printf("\t-l\t\tCreate a text file that lists the file id, size, and name of every file in the archive.\n");
-	printf("\t-x\t\tExtracts all files.\n");
-	printf("\t-e START END\tExtracts files with the file ids specified by the range between START and END (inclusive).\n");
-	printf("\t-v\t\tDisplay version.\n");
+	printf("Usage: rscli [options/commands]\n");
+	printf("Options/commands:\n");
+	printf("\t-i:--input\tInput psarc file to use\n");
+	printf("\t-l:--list\tList id, size, and name of every file in the archive\n");
+	printf("\t-e:--extract\tExtract all files\n");
+//	printf("\t-v\t\tDisplay version.\n");
 }
+
+static int verbose_flag;
 
 int main(int argc, char *argv[]) {
 	PSARC psarc;
+	char *inputFileName = NULL;
+	bool doList = false;
+	bool doExport = false;
 
-	switch (argc) {
-		case 2:
+	static struct option long_options[] = {
+		/* These options set a flag. */
+	  {"brief",   no_argument,       &verbose_flag, 0},
+	  /* These options don’t set a flag. We distinguish them by their indices. */
+	  {"list",    no_argument,       0, 'l'},
+	  {"extract", no_argument,       0, 'e'},
+	  {"input",   required_argument, 0, 'i'},
+	  {0, 0, 0, 0}
+	};
+
+	while (1) {
+		int option_index = 0;
+		int c = getopt_long(argc, argv, "i:le", long_options, &option_index);
+		if (c == -1) break;
+		switch (c)
 			{
-				if (strncmp(argv[1], "-v", 2) == 0)
-					printf("psarc: version " VERSION "\n");
-				else
-					usage();
-			}
-			break;
+			case 'l':
+			  doList = true;
+				break;
 
-		case 3:
-			{
-				const char *arcName = argv[2];
-				if (strncmp(argv[1], "-l", 2) == 0)
-					psarc.readHeader(arcName);
-				else if (strncmp(argv[1], "-x", 2) == 0)
-					psarc.read(arcName, 0, 0);
-			}
-			break;
+			case 'e':
+				doExport = true;
+				break;
 
-		case 5:
-			{
-				if (strncmp(argv[1], "-e", 2) == 0) {
-					int argv1 = atoi(argv[2]);
-					int argv2 = atoi(argv[3]);
-					if (argv1 > 0 && argv2 >= argv1)
-						psarc.read(argv[4], argv1, argv2);
-				}
-			}
-			break;
+			case 'i':
+				inputFileName = optarg;
+				break;
 
-		default:
-			usage();
-			break;
+			case '?':
+				/* getopt_long already printed an error message. */
+				break;
+
+			default:
+				abort();
+			}
+	}
+
+	if (inputFileName == NULL) {
+		printf("No inputfile specified\n");
+		usage();
+		exit(1);
+	}
+
+	if (!psarc.read(inputFileName)) {
+		printf("Unable to open archive '%s'\n", inputFileName);
+		exit(1);
+	}
+	if (doList) {
+		psarc.displayFileList();
+	}
+	if (doExport) {
+		psarc.extractAllFiles();
 	}
 
 	return EXIT_SUCCESS;

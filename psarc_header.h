@@ -1,8 +1,6 @@
 #ifndef PSARC_HEADER_H__
 #define PSARC_HEADER_H__
 
-//#define kPSARCMagicNumber 0x50534152	// "PSAR"
-//#define HEADER_SIZE 0x20
 
 class Header {
 public:
@@ -62,7 +60,6 @@ private:
 	uint32_t numFiles;
 	uint32_t blockSizeAlloc;
 	uint32_t archiveFlags;
-
 };
 
 #endif // PSARC_HEADER_H__

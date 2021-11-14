@@ -18,15 +18,11 @@ static const char PsarcKey[32] =
 
 PSARC::PSARC() {
 	_buffer = (uint8_t *)malloc(600 * 1024);
-	_entries = NULL;
 }
 
 PSARC::~PSARC() {
 	_f.close();
 	free(_buffer);
-
-	if (_entries != NULL)
-		delete _entries;
 }
 
 void PSARC::inflateEntry(uint32_t entry, uint32_t *zBlocks, uint32_t cBlockSize, char *basename, char *dirname) {
@@ -38,9 +34,9 @@ void PSARC::inflateEntry(uint32_t entry, uint32_t *zBlocks, uint32_t cBlockSize,
 	}
 	File stream;
 	if (stream.open(basename, dirname, "w")) {
-		if (_entries[entry]._length != 0) {
-			_f.seek(_entries[entry]._zOffset);
-			uint32_t zIndex = _entries[entry]._zIndex;
+		if (m_entries.at(entry).getLength() != 0) {
+			_f.seek(m_entries.at(entry).getZOffset());
+			uint32_t zIndex = m_entries.at(entry).getZIndex();
 			do {
 				if (zBlocks[zIndex] == 0) {
 					_f.read(_buffer, cBlockSize);
@@ -52,7 +48,7 @@ void PSARC::inflateEntry(uint32_t entry, uint32_t *zBlocks, uint32_t cBlockSize,
 					if (isGzipped == 0x78da) {
 						uint8_t *uncompressData;
 						uLongf uncompressSize;
-						uint32_t val = _entries[entry]._length - (zIndex - _entries[entry]._zIndex) * cBlockSize;
+						uint32_t val = m_entries.at(entry).getLength() - (zIndex - m_entries.at(entry).getZIndex()) * cBlockSize;
 						if (val < cBlockSize) {
 							uncompressData = (uint8_t *)malloc(val);
 							uncompressSize = (uLongf)val;
@@ -71,7 +67,7 @@ void PSARC::inflateEntry(uint32_t entry, uint32_t *zBlocks, uint32_t cBlockSize,
 					}
 				}
 				zIndex++;
-			} while (stream.offset() < _entries[entry]._length);
+			} while (stream.offset() < m_entries.at(entry).getLength());
 		}
 
 		if (entry == 0) {
@@ -81,7 +77,7 @@ void PSARC::inflateEntry(uint32_t entry, uint32_t *zBlocks, uint32_t cBlockSize,
 			File reader;
 			reader.open(basename, dirname, "r");
 
-			_entries[0]._name = (char *)"NamesBlock.bin";
+			m_entries.at(0).setName((char*)"NamesBlock.bin");
 			for (uint32_t i = 1; i < _header.getNumFiles(); i++) {
 				int32_t pos = reader.offset();
 				uint8_t byte = reader.readByte();
@@ -95,19 +91,21 @@ void PSARC::inflateEntry(uint32_t entry, uint32_t *zBlocks, uint32_t cBlockSize,
 				reader.seek(pos);
 				if (byte == 10) {
 					reader.read(_buffer, count - 1);
-					_entries[i]._name = strndup((char *)_buffer, count - 1);
+					char *name = strndup((char *)_buffer, count - 1);
+					m_entries.at(i).setName(name);
 					reader.shift(1);
 				} else {
 					reader.read(_buffer, count);
-					_entries[i]._name = strndup((char *)_buffer, count);
+					char *name = strndup((char *)_buffer, count);
+					m_entries.at(i).setName(name);
 				}
 			}
 
 			reader.close();
 			remove("/tmp/psarc.temp");
 		} else {
-			if (stream.offset() != _entries[entry]._length)
-				printf("File size : %" PRId64 " bytes. Expected size: %" PRId64 " bytes\n", stream.offset(), _entries[entry]._length);
+			if (stream.offset() != m_entries.at(entry).getLength())
+				printf("File size : %" PRId64 " bytes. Expected size: %" PRId64 " bytes\n", stream.offset(), m_entries.at(entry).getLength());
 
 			stream.close();
 		}
@@ -151,9 +149,8 @@ void PSARC::read(const char *arcName, uint32_t start, uint32_t end, const bool p
 				} while (i < _header.getBlockSizeAlloc());
 
 				_f.seek(Header::HEADER_SIZE);
-				_entries = new Pack[_header.getNumFiles()];
 				uint32_t realTocSize = _header.getTotalTocSize() - Header::HEADER_SIZE;
-				char rawToc[realTocSize];
+				char rawToc[_header.getTotalTocSize()];
 				if (_header.isTocEncrypted()) {
 					char encryptedToc[_header.getTotalTocSize()];
 					_f.readBytes(encryptedToc, realTocSize);
@@ -165,16 +162,21 @@ void PSARC::read(const char *arcName, uint32_t start, uint32_t end, const bool p
 					_f.readBytes(rawToc, realTocSize);
 				}
 				uint32_t tocOffset = 0;
+				m_entries.reserve(_header.getNumFiles());
 				for (uint32_t i = 0; i < _header.getNumFiles(); i++) {
-					_entries[i]._id = i;
+					Entry entry = Entry(i);
+					char md5[16];
 					for (int j = 0; j < 16; j++) {
-						_entries[i]._md5[j] = rawToc[tocOffset++];
+						md5[j] = rawToc[tocOffset++];
 					}
-					_entries[i]._zIndex = READ_BE_UINT32(&rawToc[tocOffset]); tocOffset += 4;
-					_entries[i]._length = READ_BE_INT40(&rawToc[tocOffset]); tocOffset += 5;
-					_entries[i]._zOffset = READ_BE_INT40(&rawToc[tocOffset]); tocOffset += 5;
-					_entries[i]._name = NULL;
-					_entries[i]._data = NULL;
+					entry.setMd5(md5);
+					entry.setZIndex(READ_BE_UINT32(&rawToc[tocOffset]));
+					tocOffset += 4;
+					entry.setLength(READ_BE_INT40(&rawToc[tocOffset]));
+					tocOffset += 5;
+					entry.setZOffset(READ_BE_INT40(&rawToc[tocOffset]));
+					tocOffset += 5;
+					m_entries.push_back(entry);
 				}
 
 				uint32_t numBlocks = (_header.getTotalTocSize() - (tocOffset + Header::HEADER_SIZE)) / zType;
@@ -211,7 +213,8 @@ void PSARC::read(const char *arcName, uint32_t start, uint32_t end, const bool p
 
 				if (printHeader) {
 					for (uint32_t i = 1; i < _header.getNumFiles(); i++) {
-						printf("%d %" PRId64 " b %s\n", i, _entries[i]._length, _entries[i]._name);
+						Entry &entry = m_entries.at(i);
+						printf("%d %" PRId64 " b %s\n", entry.getId(), entry.getLength(), entry.getName());
 					}
 				} else {
 					bool flag = true;
@@ -228,15 +231,15 @@ void PSARC::read(const char *arcName, uint32_t start, uint32_t end, const bool p
 						mkdir(baseDir, 0777);
 
 						for (uint32_t i = start; i < end; i++) {
-							printf("%i %s\n", _entries[i]._id, _entries[i]._name);
+							printf("%i %s\n", m_entries.at(i).getId(), m_entries.at(i).getName());
 
-							char *subOutDirc = strdup(_entries[i]._name);
-							char *outFilec = strdup(_entries[i]._name);
+							char *subOutDirc = strdup(m_entries.at(i).getName());
+							char *outFilec = strdup(m_entries.at(i).getName());
 
 							char *subOutDir = dirname(subOutDirc);
 							char *outFile = basename(outFilec);
 							char *outDir;
-							if (strncmp("/", _entries[i]._name, 1) == 0) {
+							if (strncmp("/", m_entries.at(i).getName(), 1) == 0) {
 								outDir = (char *)malloc(strlen(baseDir) + strlen(subOutDir) + 1);
 								snprintf(outDir, strlen(baseDir) + strlen(subOutDir) + 1, "%s%s", baseDir, subOutDir);
 							} else {
@@ -251,7 +254,6 @@ void PSARC::read(const char *arcName, uint32_t start, uint32_t end, const bool p
 							free(outDir);
 							free(subOutDirc);
 							free(outFilec);
-							free(_entries[i]._name);
 						}
 					}
 				}

@@ -6,27 +6,19 @@
 #ifndef PSARC_H__
 #define PSARC_H__
 
+#include <vector>
 #include "file.h"
 #include "psarc_header.h"
+#include "psarc_entry.h"
 
 
-
-struct Pack {
-	int32_t _id;
-	uint64_t _length;
-	char *_name;
-	uint32_t _zIndex;
-	uint64_t _zOffset;
-	char _md5[16];
-	uint8_t *_data;
-};
 
 struct PSARC {
 	File _f;
 	uint8_t *_buffer;
 
 	Header _header;
-	Pack *_entries;
+	std::vector<Entry> m_entries;
 
 	PSARC();
 	~PSARC();

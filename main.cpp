@@ -4,13 +4,14 @@
  */
 
 #include "psarc.h"
+#define VERSION "0.2 alpha"
 
 void usage() {
 	printf("Usage: psarc [option] filename\n");
 	printf("Options:\n");
 	printf("\t-l\t\tCreate a text file that lists the file id, size, and name of every file in the archive.\n");
 	printf("\t-x\t\tExtracts all files.\n");
-	printf("\t-e START END\tExtracts files with the file id specified by the range between START and END (inclusive).\n");
+	printf("\t-e START END\tExtracts files with the file ids specified by the range between START and END (inclusive).\n");
 	printf("\t-v\t\tDisplay version.\n");
 }
 
@@ -21,7 +22,7 @@ int main(int argc, char *argv[]) {
 		case 2:
 			{
 				if (strncmp(argv[1], "-v", 2) == 0)
-					printf("psarc: version 0.1.3\n");
+					printf("psarc: version " VERSION "\n");
 				else
 					usage();
 			}

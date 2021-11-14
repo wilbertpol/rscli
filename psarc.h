@@ -24,7 +24,7 @@ struct PSARC {
 
 	void readEntry(Entry& entry, uint32_t *zBlocks, uint32_t cBlockSize);
 	void parseTocEntry(Entry& entry);
-	void writeRawData(Entry& entry, char *baseDir);
+	void exportRawEntryData(Entry& entry, char *baseDir);
 	void read(const char *arcName, uint32_t start, uint32_t end, bool header);
 	void read(const char *arcName, uint32_t start, uint32_t end);
 	void readHeader(const char *arcName);

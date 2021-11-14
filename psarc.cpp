@@ -100,9 +100,9 @@ void PSARC::parseTocEntry(Entry& entry) {
 }
 
 
-void PSARC::writeRawData(Entry& entry, char *baseDir) {
+void PSARC::exportRawEntryData(Entry& entry, char *baseDir) {
 	if (entry.getLength() != 0 && entry.getData() != NULL) {
-		printf("%i %s\n", entry.getId(), entry.getName());
+		printf("writing %i %" PRId64 " %s\n", entry.getId(), entry.getLength(), entry.getName());
 
 		char *subOutDirc = strdup(entry.getName());
 		char *outFilec = strdup(entry.getName());
@@ -111,17 +111,19 @@ void PSARC::writeRawData(Entry& entry, char *baseDir) {
 		char *outFile = basename(outFilec);
 		char *outDir;
 		if (strncmp("/", entry.getName(), 1) == 0) {
-			outDir = (char *)malloc(strlen(baseDir) + strlen(subOutDir) + 1);
-			snprintf(outDir, strlen(baseDir) + strlen(subOutDir) + 1, "%s%s", baseDir, subOutDir);
+			uint32_t length = strlen(baseDir) + strlen(subOutDir) + 1;
+			outDir = (char *)malloc(length);
+			snprintf(outDir, length, "%s%s", baseDir, subOutDir);
 		} else {
-			outDir = (char *)malloc(strlen(baseDir) + strlen(subOutDir) + 2);
-			snprintf(outDir, strlen(baseDir) + strlen(subOutDir) + 2, "%s/%s", baseDir, subOutDir);
+			uint32_t length = strlen(baseDir) + strlen(subOutDir) + 2;
+			outDir = (char *)malloc(length);
+			snprintf(outDir, length, "%s/%s", baseDir, subOutDir);
 		}
 
 		mkpath(outDir, 0777);
 
 		File stream;
-		if (stream.open(outFile, outDir, "w")) {
+		if (stream.open(outFile, outDir, "wb")) {
 			stream.write(entry.getData(), entry.getLength());
 		}
 		stream.close();
@@ -253,7 +255,7 @@ void PSARC::read(const char *arcName, uint32_t start, uint32_t end, const bool p
 
 					if (flag) {
 						for (uint32_t i = start; i < end; i++) {
-							writeRawData(m_entries.at(i), baseDir);
+							exportRawEntryData(m_entries.at(i), baseDir);
 						}
 					}
 				}

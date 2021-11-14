@@ -8,6 +8,7 @@
 #include "Rijndael.h"
 #include "sys.h"
 
+
 static const char PsarcKey[32] =
 {
 	0xC5, 0x3D, 0xB2, 0x38, 0x70, 0xA1, 0xA2, 0xF7,
@@ -15,6 +16,25 @@ static const char PsarcKey[32] =
 	0x57, 0x30, 0x9D, 0xC8, 0x52, 0x04, 0xD4, 0xC5,
 	0xBF, 0xDF, 0x25, 0x09, 0x0D, 0xF2, 0x57, 0x2C
 };
+
+
+static const char SngKeyMac[32] =
+{
+		0x98, 0x21, 0x33, 0x0E, 0x34, 0xB9, 0x1F, 0x70,
+		0xD0, 0xA4, 0x8C, 0xBD, 0x62, 0x59, 0x93, 0x12,
+		0x69, 0x70, 0xCE, 0xA0, 0x91, 0x92, 0xC0, 0xE6,
+		0xCD, 0xA6, 0x76, 0xCC, 0x98, 0x38, 0x28, 0x9D
+};
+
+
+static const char SngKeyPC[32] =
+{
+		0xCB, 0x64, 0x8D, 0xF3, 0xD1, 0x2A, 0x16, 0xBF,
+		0x71, 0x70, 0x14, 0x14, 0xE6, 0x96, 0x19, 0xEC,
+		0x17, 0x1C, 0xCA, 0x5D, 0x2A, 0x14, 0x2E, 0x3E,
+		0x59, 0xDE, 0x7A, 0xDD, 0xA1, 0x8A, 0x3A, 0x30
+};
+
 
 PSARC::PSARC() {
 	_buffer = (uint8_t *)malloc(600 * 1024);
@@ -65,6 +85,98 @@ void PSARC::readEntry(Entry& entry, uint32_t *zBlocks, uint32_t cBlockSize) {
 			);
 		}
 	}
+}
+
+
+void PSARC::decryptEntry(Entry& entry) {
+	if (entry.getLength() > 8 && entry.getData() != NULL && entry.getName() != NULL) {
+		uint8_t *data = entry.getData();
+		char sngExt[] = ".sng";
+		if (strlen(entry.getName()) >= strlen(sngExt) && strncmp(entry.getName() + strlen(entry.getName()) - strlen(sngExt), sngExt, strlen(sngExt)) == 0) {
+			if (READ_LE_UINT32(data) == 0x4a) {
+				if (READ_LE_UINT32(data + 4) == 0x03) {
+					printf("encrypted sng file: %s\n", entry.getName());
+					entry.setEncrypted(true);
+					entry.setOriginalPlatform(determineSngOriginalPlatform(data));
+					const char *key = NULL;
+					if (entry.getOriginalPlatform() == PLATFORM_PC) {
+						key = SngKeyPC;
+					}
+					if (entry.getOriginalPlatform() == PLATFORM_MAC) {
+						key = SngKeyMac;
+					}
+					if (key == NULL) {
+						printf("Unable to determine original platform for '%s'\n", entry.getName());
+						return;
+					}
+					uint64_t offset = 8;
+					uint64_t writeOffset = 0;
+					uint8_t blockLength = 16;
+					uint8_t decryptedSng[entry.getLength() + blockLength];
+					char iv[16];
+					for (int i = 0; i < 16; i++) {
+						iv[i] = data[offset++];
+					}
+					CRijndael rijndael;
+
+					do {
+						rijndael.MakeKey(key, iv, 32, blockLength);
+  					rijndael.Decrypt((char *)data + offset, (char *)decryptedSng + writeOffset, blockLength, CRijndael::CFB);
+						offset += blockLength;
+						writeOffset += blockLength;
+						bool carry = true;
+						for (int j = 15; j >= 0 && carry; j--) {
+								carry = ((iv[j] = (iv[j] + 1)) == 0);
+						}
+					} while (offset < entry.getLength());
+					printf("Decrypted: ");
+					for (int i = 0; i < 32; i++) {
+						printf("%02x ", decryptedSng[i]);
+					}
+					printf("\n");
+					uLongf uncompressedSize = READ_LE_UINT32(decryptedSng);
+					printf("UncompressedSize = %lu (0x%08lx)\n", uncompressedSize, uncompressedSize);
+					uint8_t *uncompressedData = (uint8_t *)malloc(uncompressedSize);
+					entry.setDecryptedLength(uncompressedSize);
+					entry.setDecryptedData(uncompressedData);
+					uncompress(uncompressedData, &uncompressedSize, decryptedSng + 4, entry.getLength() - 28);
+				}
+			}
+		}
+	}
+}
+
+
+platform PSARC::determineSngOriginalPlatform(uint8_t *data) {
+	uint64_t offset = 8;
+	uint8_t decryptedSng[16];
+	char iv[16];
+	for (int i = 0; i < 16; i++) {
+		iv[i] = data[offset++];
+	}
+	CRijndael rijndael;
+
+	rijndael.MakeKey(SngKeyPC, iv, 32, 16);
+	rijndael.Decrypt((char *)data + offset, (char *)decryptedSng, 16, CRijndael::CFB);
+//	printf("Decrypted: ");
+//	for (int i = 0; i < 16; i++) {
+//		printf("%02x ", decryptedSng[i]);
+//	}
+//	printf("\n");
+	if (decryptedSng[4] == 0x78 && decryptedSng[5] == 0xda) {
+		return PLATFORM_PC;
+	}
+	rijndael.MakeKey(SngKeyMac, iv, 32, 16);
+	rijndael.Decrypt((char *)data + offset, (char *)decryptedSng, 16, CRijndael::CFB);
+//	printf("Decrypted: ");
+//	for (int i = 0; i < 16; i++) {
+//		printf("%02x ", decryptedSng[i]);
+//	}
+//	printf("\n");
+	if (decryptedSng[4] == 0x78 && decryptedSng[5] == 0xda) {
+		return PLATFORM_MAC;
+	}
+	return PLATFORM_UNKNOWN;
 }
 
 
@@ -130,6 +242,19 @@ void PSARC::exportRawEntryData(Entry& entry, char *baseDir) {
 			stream.write(entry.getData(), entry.getLength());
 		}
 		stream.close();
+
+		if (entry.isEncrypted() && entry.getDecryptedLength() > 0 && entry.getDecryptedData() != NULL) {
+			char *decryptedPostfix = (char *)".decrypted";
+			char *outFileDec;
+			uint32_t length = strlen(outFile) + strlen(decryptedPostfix) + 1;
+			outFileDec = (char *)malloc(length);
+			snprintf(outFileDec, length, "%s%s", outFile, decryptedPostfix);
+			if (stream.open(outFileDec, outDir, "wb")) {
+				stream.write(entry.getDecryptedData(), entry.getDecryptedLength());
+			}
+			stream.close();
+			free(outFileDec);
+		}
 
 		free(outDir);
 		free(subOutDirc);
@@ -226,8 +351,12 @@ bool PSARC::read(const char *arcName) {
 
 				for (uint32_t i = 0; i < m_header.getNumFiles(); i++) {
 					readEntry(m_entries.at(i), zBlocks, m_header.getBlockSizeAlloc());
+					if (i == 0) {
+						parseTocEntry(m_entries.at(0));
+					} else {
+						decryptEntry(m_entries.at(i));
+					}
 				}
-				parseTocEntry(m_entries.at(0));
 
 				delete[] zBlocks;
 			}

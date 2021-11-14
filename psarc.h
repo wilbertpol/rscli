@@ -26,6 +26,8 @@ private:
 	void readEntry(Entry& entry, uint32_t *zBlocks, uint32_t cBlockSize);
 	void parseTocEntry(Entry& entry);
 	void exportRawEntryData(Entry& entry, char *baseDir);
+	void decryptEntry(Entry& entry);
+	platform determineSngOriginalPlatform(uint8_t *data);
 
 	File _f;
 	uint8_t *_buffer;

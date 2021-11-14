@@ -36,6 +36,11 @@ inline uint32_t READ_BE_INT24(const char *ptr) {
 }
 
 
+inline uint32_t READ_LE_UINT32(const uint8_t *ptr) {
+	return (ptr[3] << 24) | (ptr[2] << 16) | (ptr[1] << 8) | ptr[0];
+}
+
+
 inline uint32_t READ_BE_UINT32(const uint8_t *ptr) {
 	return (ptr[0] << 24) | (ptr[1] << 16) | (ptr[2] << 8) | ptr[3];
 }

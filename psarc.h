@@ -12,7 +12,6 @@
 #include "psarc_entry.h"
 
 
-
 struct PSARC {
 	File _f;
 	uint8_t *_buffer;
@@ -23,7 +22,9 @@ struct PSARC {
 	PSARC();
 	~PSARC();
 
-	void inflateEntry(uint32_t entry, uint32_t *zBlocks, uint32_t cBlockSize, char *basename, char *dirname);
+	void readEntry(Entry& entry, uint32_t *zBlocks, uint32_t cBlockSize);
+	void parseTocEntry(Entry& entry);
+	void writeRawData(Entry& entry, char *baseDir);
 	void read(const char *arcName, uint32_t start, uint32_t end, bool header);
 	void read(const char *arcName, uint32_t start, uint32_t end);
 	void readHeader(const char *arcName);

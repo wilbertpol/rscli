@@ -25,92 +25,113 @@ PSARC::~PSARC() {
 	free(_buffer);
 }
 
-void PSARC::inflateEntry(uint32_t entry, uint32_t *zBlocks, uint32_t cBlockSize, char *basename, char *dirname) {
-	uint64_t length = 0;
 
-	if (entry == 0) {
-		dirname = (char *)"/tmp";
-		basename = (char *)"psarc.temp";
-	}
-	File stream;
-	if (stream.open(basename, dirname, "w")) {
-		if (m_entries.at(entry).getLength() != 0) {
-			_f.seek(m_entries.at(entry).getZOffset());
-			uint32_t zIndex = m_entries.at(entry).getZIndex();
-			do {
-				if (zBlocks[zIndex] == 0) {
-					_f.read(_buffer, cBlockSize);
-					stream.write(_buffer, cBlockSize);
-				} else {
-					uint16_t isGzipped = _f.readUint16BE(_buffer);
-					_f.shift(-2);
-					_f.read(_buffer, zBlocks[zIndex]);
-					if (isGzipped == 0x78da) {
-						uint8_t *uncompressData;
-						uLongf uncompressSize;
-						uint32_t val = m_entries.at(entry).getLength() - (zIndex - m_entries.at(entry).getZIndex()) * cBlockSize;
-						if (val < cBlockSize) {
-							uncompressData = (uint8_t *)malloc(val);
-							uncompressSize = (uLongf)val;
-						} else {
-							uncompressData = (uint8_t *)malloc(cBlockSize);
-							uncompressSize = (uLongf)cBlockSize;
-						}
-						printf("uncompressSize %0lx\n", uncompressSize);
-						uncompress(uncompressData, &uncompressSize, _buffer, zBlocks[zIndex]);
-						printf("uncompressSize %0lx\n", uncompressSize);
-						printf("zBlocks[zIndex] %0x\n", zBlocks[zIndex]);
-						stream.write(uncompressData, uncompressSize);
-						free(uncompressData);
+void PSARC::readEntry(Entry& entry, uint32_t *zBlocks, uint32_t cBlockSize) {
+	if (entry.getLength() != 0 && entry.getData() == NULL) {
+		uint8_t *data = (uint8_t *)malloc(entry.getLength());
+		entry.setData(data);
+		_f.seek(entry.getZOffset());
+		uint32_t zIndex = entry.getZIndex();
+		uint64_t writeOffset = 0;
+		do {
+			if (zBlocks[zIndex] == 0) {
+				_f.read(data + writeOffset, cBlockSize);
+				writeOffset += cBlockSize;
+			} else {
+				_f.read(_buffer, zBlocks[zIndex]);
+				if (_buffer[0] == 0x78 && _buffer[1] == 0xda) {
+					uLongf uncompressSize;
+					uint32_t val = entry.getLength() - (zIndex - entry.getZIndex()) * cBlockSize;
+					if (val < cBlockSize) {
+						uncompressSize = (uLongf)val;
 					} else {
-						stream.write(_buffer, zBlocks[zIndex]);
+						uncompressSize = (uLongf)cBlockSize;
 					}
-				}
-				zIndex++;
-			} while (stream.offset() < m_entries.at(entry).getLength());
-		}
-
-		if (entry == 0) {
-			length = stream.offset();
-			stream.close();
-
-			File reader;
-			reader.open(basename, dirname, "r");
-
-			m_entries.at(0).setName((char*)"NamesBlock.bin");
-			for (uint32_t i = 1; i < m_header.getNumFiles(); i++) {
-				int32_t pos = reader.offset();
-				uint8_t byte = reader.readByte();
-				uint8_t count = 1;
-
-				while ((byte != 10) && (reader.offset() < length)) {
-					byte = reader.readByte();
-					count++;
-				}
-
-				reader.seek(pos);
-				if (byte == 10) {
-					reader.read(_buffer, count - 1);
-					char *name = strndup((char *)_buffer, count - 1);
-					m_entries.at(i).setName(name);
-					reader.shift(1);
+					uncompress(data + writeOffset, &uncompressSize, _buffer, zBlocks[zIndex]);
+					writeOffset += uncompressSize;
 				} else {
-					reader.read(_buffer, count);
-					char *name = strndup((char *)_buffer, count);
-					m_entries.at(i).setName(name);
+					memcpy(data + writeOffset, _buffer, zBlocks[zIndex]);
+					writeOffset += zBlocks[zIndex];
 				}
 			}
-
-			reader.close();
-			remove("/tmp/psarc.temp");
-		} else {
-			if (stream.offset() != m_entries.at(entry).getLength())
-				printf("File size : %" PRId64 " bytes. Expected size: %" PRId64 " bytes\n", stream.offset(), m_entries.at(entry).getLength());
-
-			stream.close();
+			zIndex++;
+		} while (writeOffset < entry.getLength());
+		if (writeOffset != entry.getLength()) {
+			printf("File size : %" PRId64 " bytes. Expected size: %" PRId64 " bytes\n",
+				writeOffset, entry.getLength()
+			);
 		}
 	}
 }
+
+
+void PSARC::parseTocEntry(Entry& entry) {
+	if (entry.getId() != 0) {
+		printf("Error: trying to parse an entry with id (%d) != 0 as TOC entry\n", entry.getId());
+		return;
+	}
+	if (entry.getData() == NULL || entry.getLength() == 0) {
+		printf("Error: TOC data not loaded yet\n");
+		return;
+	}
+
+	uint8_t *data = entry.getData();
+	uint64_t offset = 0;
+
+	for (uint32_t i = 1; i < m_header.getNumFiles(); i++) {
+		uint64_t nameStart = offset;
+		uint8_t byte = data[offset++];
+		uint8_t count = 1;
+
+		while ((byte != 10) && (offset < entry.getLength())) {
+			byte = data[offset++];
+			count++;
+		}
+
+		if (byte == 10) {
+			char *name = strndup((char *)data + nameStart, count - 1);
+			m_entries.at(i).setName(name);
+		} else {
+			char *name = strndup((char *)data + nameStart, count);
+			m_entries.at(i).setName(name);
+		}
+	}
+	// TODO: Verify that all entries have a name
+}
+
+
+void PSARC::writeRawData(Entry& entry, char *baseDir) {
+	if (entry.getLength() != 0 && entry.getData() != NULL) {
+		printf("%i %s\n", entry.getId(), entry.getName());
+
+		char *subOutDirc = strdup(entry.getName());
+		char *outFilec = strdup(entry.getName());
+
+		char *subOutDir = dirname(subOutDirc);
+		char *outFile = basename(outFilec);
+		char *outDir;
+		if (strncmp("/", entry.getName(), 1) == 0) {
+			outDir = (char *)malloc(strlen(baseDir) + strlen(subOutDir) + 1);
+			snprintf(outDir, strlen(baseDir) + strlen(subOutDir) + 1, "%s%s", baseDir, subOutDir);
+		} else {
+			outDir = (char *)malloc(strlen(baseDir) + strlen(subOutDir) + 2);
+			snprintf(outDir, strlen(baseDir) + strlen(subOutDir) + 2, "%s/%s", baseDir, subOutDir);
+		}
+
+		mkpath(outDir, 0777);
+
+		File stream;
+		if (stream.open(outFile, outDir, "w")) {
+			stream.write(entry.getData(), entry.getLength());
+		}
+		stream.close();
+
+		free(outDir);
+		free(subOutDirc);
+		free(outFilec);
+	}
+}
+
 
 void PSARC::read(const char *arcName, uint32_t start, uint32_t end, const bool printHeader) {
 	char *dirNamec = strdup(arcName);
@@ -209,7 +230,10 @@ void PSARC::read(const char *arcName, uint32_t start, uint32_t end, const bool p
 					snprintf(baseDir, strlen(fileName) + strlen(data) + 1, "%s%s", fileName, data);
 				}
 
-				inflateEntry(0, zBlocks, m_header.getBlockSizeAlloc(), NULL, NULL);
+				for (uint32_t i = 0; i < m_header.getNumFiles(); i++) {
+					readEntry(m_entries.at(i), zBlocks, m_header.getBlockSizeAlloc());
+				}
+				parseTocEntry(m_entries.at(0));
 
 				if (printHeader) {
 					for (uint32_t i = 1; i < m_header.getNumFiles(); i++) {
@@ -228,32 +252,8 @@ void PSARC::read(const char *arcName, uint32_t start, uint32_t end, const bool p
 					}
 
 					if (flag) {
-						mkdir(baseDir, 0777);
-
 						for (uint32_t i = start; i < end; i++) {
-							printf("%i %s\n", m_entries.at(i).getId(), m_entries.at(i).getName());
-
-							char *subOutDirc = strdup(m_entries.at(i).getName());
-							char *outFilec = strdup(m_entries.at(i).getName());
-
-							char *subOutDir = dirname(subOutDirc);
-							char *outFile = basename(outFilec);
-							char *outDir;
-							if (strncmp("/", m_entries.at(i).getName(), 1) == 0) {
-								outDir = (char *)malloc(strlen(baseDir) + strlen(subOutDir) + 1);
-								snprintf(outDir, strlen(baseDir) + strlen(subOutDir) + 1, "%s%s", baseDir, subOutDir);
-							} else {
-								outDir = (char *)malloc(strlen(baseDir) + strlen(subOutDir) + 2);
-								snprintf(outDir, strlen(baseDir) + strlen(subOutDir) + 2, "%s/%s", baseDir, subOutDir);
-							}
-
-							mkpath(outDir, 0777);
-
-							inflateEntry(i, zBlocks, m_header.getBlockSizeAlloc(), outFile, outDir);
-
-							free(outDir);
-							free(subOutDirc);
-							free(outFilec);
+							writeRawData(m_entries.at(i), baseDir);
 						}
 					}
 				}
@@ -264,19 +264,12 @@ void PSARC::read(const char *arcName, uint32_t start, uint32_t end, const bool p
 		} else
 			printf("Compression type is not zlib... Aborting.");
 	}
-
-//	free(dirNamec);
-//	free(fileNamec);
 }
 
 void PSARC::read(const char *arcName, uint32_t start, uint32_t end) {
-	printf("read\n");
 	read(arcName, start, end, false);
-	printf("read done\n");
 }
 
 void PSARC::readHeader(const char *arcName) {
-	printf("readHeader\n");
 	read(arcName, 0, 0, true);
-	printf("readHeader done\n");
 }

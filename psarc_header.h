@@ -20,6 +20,7 @@ public:
     , numFiles(0)
     , blockSizeAlloc(0x00010000)
     , archiveFlags(0)
+    , zType(0)
   {}
 
   void setMagicNumber(uint32_t magicNumber) { this->magicNumber = magicNumber; }
@@ -46,6 +47,9 @@ public:
   void setArchiveFlags(uint32_t archiveFlags) { this->archiveFlags = archiveFlags; }
   uint32_t getArchiveFlags() const { return archiveFlags; }
 
+  void setZType(uint8_t zType) { this->zType = zType; }
+  uint8_t getZType() const { return zType; }
+
   bool isPSARC() const { return magicNumber == PSARC_MAGIC_NUMBER; }
   bool isZlib() const { return compressionMethod == COMPRESSION_ZLIB; }
   bool isLzma() const { return compressionMethod == COMPRESSION_LZMA; }
@@ -60,6 +64,7 @@ private:
 	uint32_t numFiles;
 	uint32_t blockSizeAlloc;
 	uint32_t archiveFlags;
+  uint8_t zType;
 };
 
 #endif // PSARC_HEADER_H__

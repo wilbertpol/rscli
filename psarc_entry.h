@@ -3,12 +3,6 @@
 
 #include "psarc_platform.h"
 
-typedef enum platform {
-  PLATFORM_UNKNOWN,
-  PLATFORM_MAC,
-  PLATFORM_PC
-} platform;
-
 
 class Entry {
 public:
@@ -20,9 +14,11 @@ public:
     , zOffset(0)
     , data(NULL)
     , encrypted(false)
-    , originalPlatform(PLATFORM_UNKNOWN)
+    , originalPlatform(PLATFORM_NONE)
     , decryptedLength(0)
     , decryptedData(NULL)
+    , decompressedLength(0)
+    , decompressedData(NULL)
     {}
 
   ~Entry() {
@@ -34,6 +30,10 @@ public:
        delete decryptedData;
        decryptedData = NULL;
      }
+     if (decompressedData != NULL) {
+       delete decompressedData;
+       decompressedData = NULL;
+     }
   }
 
   uint32_t getId() const { return id; }
@@ -44,6 +44,11 @@ public:
 
   char* getName() const { return name; }
   void setName(char *name) { this->name = name; }
+  bool hasExtension(const char *extension) {
+		return (strlen(name) >= strlen(extension) &&
+     strncmp(name + strlen(name) - strlen(extension), extension, strlen(extension)) == 0
+   );
+  }
 
   uint32_t getZIndex() const { return zIndex; }
   void setZIndex(uint32_t zIndex) { this->zIndex = zIndex; }
@@ -69,6 +74,12 @@ public:
   uint8_t* getDecryptedData() const { return decryptedData; }
   void setDecryptedData(uint8_t *decryptedData) { this->decryptedData = decryptedData; }
 
+  uint64_t getDecompressedLength() const { return decompressedLength; }
+  void setDecompressedLength(uint64_t decompressedLength) { this->decompressedLength = decompressedLength; }
+
+  uint8_t *getDecompressedData() const { return decompressedData; }
+  void setDecompressedData(uint8_t *decompressedData) { this->decompressedData = decompressedData; }
+
 private:
 	uint32_t id;
 	uint64_t length;
@@ -81,6 +92,8 @@ private:
   platform originalPlatform;
   uint64_t decryptedLength;
   uint8_t *decryptedData;
+  uint16_t decompressedLength;
+  uint8_t *decompressedData;
 };
 
 #endif // PSARC_ENTRY_H__

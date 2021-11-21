@@ -3,9 +3,10 @@
 A simple commandline tool for managing Rocksmith CDLC packages.
 Currently functionality:
 - Reading and unpacking of CDLC packages.
+- Decrypt PC/Mac .sng files.
 
 Planned functionality:
-- Determining PC/Mac type files
+- Determining PC/Mac type files other than .sng
 - Converting to PC/Mac
 - Changing a package's appid
 - Writing CDLC package.

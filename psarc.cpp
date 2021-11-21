@@ -3,6 +3,7 @@
  * Copyright (C) 2011-2018 Matthieu Milan
  */
 
+#include <cstdio>
 #include <inttypes.h>
 #include "psarc.h"
 #include "Rijndael.h"
@@ -35,6 +36,8 @@ static const char SngKeyPC[32] =
 		0x59, 0xDE, 0x7A, 0xDD, 0xA1, 0x8A, 0x3A, 0x30
 };
 
+#define MAX_ENCRYPTION_BLOCK_SIZE 32
+
 
 PSARC::PSARC() {
 	_buffer = (uint8_t *)malloc(600 * 1024);
@@ -51,7 +54,7 @@ PSARC::~PSARC() {
 
 void PSARC::readEntry(Entry& entry, uint32_t *zBlocks, uint32_t cBlockSize) {
 	if (entry.getLength() != 0 && entry.getData() == NULL) {
-		uint8_t *data = (uint8_t *)malloc(entry.getLength());
+		uint8_t *data = (uint8_t *)malloc(entry.getLength() + MAX_ENCRYPTION_BLOCK_SIZE);
 		entry.setData(data);
 		_f.seek(entry.getZOffset());
 		uint32_t zIndex = entry.getZIndex();
@@ -91,11 +94,9 @@ void PSARC::readEntry(Entry& entry, uint32_t *zBlocks, uint32_t cBlockSize) {
 void PSARC::decryptEntry(Entry& entry) {
 	if (entry.getLength() > 8 && entry.getData() != NULL && entry.getName() != NULL) {
 		uint8_t *data = entry.getData();
-		char sngExt[] = ".sng";
-		if (strlen(entry.getName()) >= strlen(sngExt) && strncmp(entry.getName() + strlen(entry.getName()) - strlen(sngExt), sngExt, strlen(sngExt)) == 0) {
+		if (entry.hasExtension(".sng")) {
 			if (READ_LE_UINT32(data) == 0x4a) {
 				if (READ_LE_UINT32(data + 4) == 0x03) {
-					printf("encrypted sng file: %s\n", entry.getName());
 					entry.setEncrypted(true);
 					entry.setOriginalPlatform(determineSngOriginalPlatform(data));
 					const char *key = NULL;
@@ -112,7 +113,9 @@ void PSARC::decryptEntry(Entry& entry) {
 					uint64_t offset = 8;
 					uint64_t writeOffset = 0;
 					uint8_t blockLength = 16;
-					uint8_t decryptedSng[entry.getLength() + blockLength];
+					uint8_t *decryptedSng = (uint8_t *)malloc(entry.getLength() + MAX_ENCRYPTION_BLOCK_SIZE);
+					entry.setDecryptedLength(entry.getLength());
+					entry.setDecryptedData(decryptedSng);
 					char iv[16];
 					for (int i = 0; i < 16; i++) {
 						iv[i] = data[offset++];
@@ -129,20 +132,52 @@ void PSARC::decryptEntry(Entry& entry) {
 								carry = ((iv[j] = (iv[j] + 1)) == 0);
 						}
 					} while (offset < entry.getLength());
-					printf("Decrypted: ");
-					for (int i = 0; i < 32; i++) {
-						printf("%02x ", decryptedSng[i]);
-					}
-					printf("\n");
 					uLongf uncompressedSize = READ_LE_UINT32(decryptedSng);
-					printf("UncompressedSize = %lu (0x%08lx)\n", uncompressedSize, uncompressedSize);
 					uint8_t *uncompressedData = (uint8_t *)malloc(uncompressedSize);
-					entry.setDecryptedLength(uncompressedSize);
-					entry.setDecryptedData(uncompressedData);
+					entry.setDecompressedLength(uncompressedSize);
+					entry.setDecompressedData(uncompressedData);
 					uncompress(uncompressedData, &uncompressedSize, decryptedSng + 4, entry.getLength() - 28);
 				}
 			}
 		}
+	}
+}
+
+
+void PSARC::encryptEntry(Entry& entry, platform targetPlatform) {
+	if (entry.getDecryptedLength() > 8 + 16 && entry.getDecryptedData() != NULL && entry.isEncrypted()) {
+		uint8_t *decryptedData = entry.getDecryptedData();
+		uint8_t *data = entry.getData();
+		const char *key = NULL;
+		if (targetPlatform == PLATFORM_PC) {
+			key = SngKeyPC;
+		}
+		if (targetPlatform == PLATFORM_MAC) {
+			key = SngKeyMac;
+		}
+		if (key == NULL) {
+			printf("Unable to determine target platform encrypted key for '%s'\n", entry.getName());
+			return;
+		}
+		uint64_t offset = 8;
+		uint64_t readOffset = 0;
+		uint8_t blockLength = 16;
+		char iv[16];
+		for (int i = 0; i < 16; i++) {
+			iv[i] = decryptedData[offset++];
+		}
+		CRijndael rijndael;
+
+		do {
+			rijndael.MakeKey(key, iv, 32, blockLength);
+			rijndael.Encrypt((char *)decryptedData + readOffset, (char *)data + offset, blockLength, CRijndael::CFB);
+			offset += blockLength;
+			readOffset += blockLength;
+			bool carry = true;
+			for (int j = 15; j >= 0 && carry; j--) {
+					carry = ((iv[j] = (iv[j] + 1)) == 0);
+			}
+		} while (readOffset < entry.getDecryptedLength());
 	}
 }
 
@@ -198,12 +233,12 @@ void PSARC::parseTocEntry(Entry& entry) {
 		uint8_t byte = data[offset++];
 		uint8_t count = 1;
 
-		while ((byte != 10) && (offset < entry.getLength())) {
+		while ((byte != NEW_LINE) && (offset < entry.getLength())) {
 			byte = data[offset++];
 			count++;
 		}
 
-		if (byte == 10) {
+		if (byte == NEW_LINE) {
 			char *name = strndup((char *)data + nameStart, count - 1);
 			m_entries.at(i).setName(name);
 		} else {
@@ -215,7 +250,7 @@ void PSARC::parseTocEntry(Entry& entry) {
 }
 
 
-void PSARC::exportRawEntryData(Entry& entry, char *baseDir) {
+void PSARC::extractRawEntryData(Entry& entry, char *baseDir) {
 	if (entry.getLength() != 0 && entry.getData() != NULL) {
 		printf("writing %i %" PRId64 " %s\n", entry.getId(), entry.getLength(), entry.getName());
 
@@ -238,24 +273,52 @@ void PSARC::exportRawEntryData(Entry& entry, char *baseDir) {
 		mkpath(outDir, 0777);
 
 		File stream;
+
+		// write raw
 		if (stream.open(outFile, outDir, "wb")) {
-			stream.write(entry.getData(), entry.getLength());
+				stream.write(entry.getData(), entry.getLength());
 		}
 		stream.close();
-
+		// write decrypted
 		if (entry.isEncrypted() && entry.getDecryptedLength() > 0 && entry.getDecryptedData() != NULL) {
-			char *decryptedPostfix = (char *)".decrypted";
-			char *outFileDec;
-			uint32_t length = strlen(outFile) + strlen(decryptedPostfix) + 1;
-			outFileDec = (char *)malloc(length);
-			snprintf(outFileDec, length, "%s%s", outFile, decryptedPostfix);
-			if (stream.open(outFileDec, outDir, "wb")) {
+			char decrypted[] = ".decrypted";
+			uint32_t length = strlen(outFile) + strlen(decrypted) + 1;
+			char *decryptedFileName = (char *)malloc(length);
+			snprintf(decryptedFileName, length, "%s%s", outFile, decrypted);
+			if (stream.open(decryptedFileName, outDir, "wb")) {
 				stream.write(entry.getDecryptedData(), entry.getDecryptedLength());
 			}
 			stream.close();
-			free(outFileDec);
+			free(decryptedFileName);
+			// write decompressed
+			if (entry.getDecompressedLength() > 0 && entry.getDecompressedData() != NULL) {
+				char decompressed[] = ".decompressed";
+				uint32_t length = strlen(outFile) + strlen(decompressed) + 1;
+				char *decompressedFileName = (char *)malloc(length);
+				snprintf(decompressedFileName, length, "%s%s", outFile, decompressed);
+				if (stream.open(decompressedFileName, outDir, "wb")) {
+					stream.write(entry.getDecompressedData(), entry.getDecompressedLength());
+				}
+				stream.close();
+				free(decompressedFileName);
+			}
 		}
-
+/*
+		File stream;
+		if (stream.open(outFile, outDir, "wb")) {
+			if (entry.isEncrypted() && entry.getDecompressedLength() > 0 && entry.getDecompressedData() != NULL) {
+				// Write decrypted decompressed data
+				stream.write(entry.getDecompressedData(), entry.getDecompressedLength());
+			} else if (entry.isEncrypted() && entry.getDecryptedLength() > 0 && entry.getDecryptedData() != NULL) {
+				// Write decrypted data
+				stream.write(entry.getDecryptedData(), entry.getDecryptedLength());
+			} else {
+				// Write raw data
+				stream.write(entry.getData(), entry.getLength());
+			}
+		}
+		stream.close();
+*/
 		free(outDir);
 		free(subOutDirc);
 		free(outFilec);
@@ -282,12 +345,10 @@ bool PSARC::read(const char *arcName) {
 			m_header.setArchiveFlags(_f.readUint32BE(_buffer));
 
 			if (m_header.isZlib()) {
-				uint8_t zType = 1;
-				uint32_t i = 256;
-				do {
-					i *= 256;
-					zType = (uint8_t)(zType + 1);
-				} while (i < m_header.getBlockSizeAlloc());
+				m_header.setZType(1);
+				for (uint64_t i = 0x100; i < m_header.getBlockSizeAlloc(); i <<= 8) {
+					m_header.setZType(m_header.getZType() + 1);
+				}
 
 				_f.seek(Header::HEADER_SIZE);
 				uint32_t realTocSize = m_header.getTotalTocSize() - Header::HEADER_SIZE;
@@ -320,10 +381,10 @@ bool PSARC::read(const char *arcName) {
 					m_entries.push_back(entry);
 				}
 
-				uint32_t numBlocks = (m_header.getTotalTocSize() - (tocOffset + Header::HEADER_SIZE)) / zType;
+				uint32_t numBlocks = (m_header.getTotalTocSize() - (tocOffset + Header::HEADER_SIZE)) / m_header.getZType();
 				uint32_t *zBlocks = new uint32_t[numBlocks];
 				for (uint32_t i = 0; i < numBlocks; i++) {
-					switch (zType) {
+					switch (m_header.getZType()) {
 						case 2:
 							zBlocks[i] = READ_BE_UINT16(&rawToc[tocOffset]); tocOffset += 2;
 							break;
@@ -359,9 +420,13 @@ bool PSARC::read(const char *arcName) {
 				}
 
 				delete[] zBlocks;
+				return true;
+			} else {
+				printf("Compression type is not zlib... Aborting.");
+				return false;
 			}
 		} else {
-			printf("Compression type is not zlib... Aborting.");
+			printf("Is not a PSARC file... Aborting.");
 			return false;
 		}
 		return true;
@@ -371,9 +436,212 @@ bool PSARC::read(const char *arcName) {
 }
 
 
+void PSARC::writeBlock(File& stream, uint8_t *dataToWrite, uint8_t *zBlocks, uint32_t zBlock, uint64_t *zOffset, uint32_t blockSize) {
+	// - For each block, compress where possible and write the data,
+	//   write block size to zBlock data/TOC space
+	// TODO Attempt to gzip block
+	uint8_t *zipBuffer = (uint8_t *)malloc(blockSize);
+	uLongf zipBufferSize = blockSize;
+	if (compress2(zipBuffer, &zipBufferSize, dataToWrite, blockSize, Z_BEST_COMPRESSION) == Z_OK) {
+		// Write compressed block
+		stream.write(zipBuffer, zipBufferSize);
+		switch (m_header.getZType()) {
+			case 2:
+				WRITE_BE_UINT16(zBlocks + m_header.getZType() * zBlock, zipBufferSize);
+				break;
+
+			case 3:
+				WRITE_BE_INT24(zBlocks + m_header.getZType() * zBlock, zipBufferSize);
+				break;
+
+			case 4:
+				WRITE_BE_UINT32(zBlocks + m_header.getZType() * zBlock, zipBufferSize);
+				break;
+		}
+		*zOffset += zipBufferSize;
+	} else {
+		// Compression failed, write block as-is
+		stream.write(dataToWrite, blockSize);
+		switch (m_header.getZType()) {
+			case 2:
+				WRITE_BE_UINT16(zBlocks + m_header.getZType() * zBlock, blockSize);
+				break;
+
+			case 3:
+				WRITE_BE_INT24(zBlocks + m_header.getZType() * zBlock, blockSize);
+				break;
+
+			case 4:
+				WRITE_BE_UINT32(zBlocks + m_header.getZType() * zBlock, blockSize);
+				break;
+		}
+		*zOffset += blockSize;
+	}
+	free(zipBuffer);
+}
+
+
+bool PSARC::write(Options& options) {
+	if (options.newAppId != NULL) {
+		setNewAppId(options.newAppId);
+	}
+
+	char *dirNamec = strdup(options.outputFileName);
+	char *fileNamec = strdup(options.outputFileName);
+
+	char *dirName = dirname(dirNamec);
+	char *fileName = basename(fileNamec);
+	char tmp[] = "_tmp";
+
+	char *fileNameTemp = (char *)malloc(strlen(fileName) + strlen(tmp) + 1);
+	snprintf(fileNameTemp, strlen(fileName) + strlen(tmp) + 1, "%s%s", fileName, tmp);
+
+	File stream;
+	if (stream.open(fileNameTemp, dirName, "wb")) {
+		uint8_t *tocBuffer = (uint8_t *)malloc(64 * 1024);
+		// Write data
+		printf("Should write some data\n");
+		// TODO Encrypt files to data areas and get new file lengths (just in case)
+		if (options.targetPlatform != PLATFORM_NONE) {
+			for (int i = 1; i < m_header.getNumFiles(); i++) {
+				Entry &entry = m_entries.at(i);
+				if (entry.isEncrypted() &&
+						entry.getOriginalPlatform() != PLATFORM_NONE &&
+						entry.getOriginalPlatform() != options.targetPlatform) {
+					// Re-encrypt
+					encryptEntry(entry, options.targetPlatform);
+					printf("Re-encrypt '%s'\n", entry.getName());
+				}
+			}
+		}
+		// Rebuild file name data for file #0
+		// TODO For general case, for our current functionality this is not
+		// needed.
+		// TODO Calculate md5 for all entries
+
+		// Build header and TOC
+		uint32_t tocSize = Header::HEADER_SIZE;
+
+		// Reserve/write TOC space
+		uint32_t zBlockCount = 0;
+		for (int i = 0; i < m_header.getNumFiles(); i++) {
+			Entry& entry = m_entries.at(i);
+			tocSize += m_header.getTocEntrySize();
+			entry.setZIndex(zBlockCount);
+
+			zBlockCount++;
+			uint64_t entryLength = entry.getLength();
+			while (entryLength > m_header.getBlockSizeAlloc()) {
+				zBlockCount++;
+				entryLength -= m_header.getBlockSizeAlloc();
+			}
+		}
+		uint32_t zBlockStart = tocSize;
+		tocSize += m_header.getZType() * zBlockCount;
+		m_header.setTotalTocSize(tocSize);
+
+		uint64_t zOffset = tocSize;
+		uint32_t zBlock = 0;
+		uint8_t *zBlocks = tocBuffer + zBlockStart;
+		stream.seek(zOffset);
+		for (int i = 0; i < m_header.getNumFiles(); i++) {
+			Entry& entry = m_entries.at(i);
+			entry.setZOffset(zOffset);
+			entry.setZIndex(zBlock);
+
+			uint64_t entryLength = entry.getLength();
+			uint8_t *dataToWrite = entry.getData();
+			// Split data into blocks
+			while (entryLength > m_header.getBlockSizeAlloc()) {
+				// write BlockSizeAlloc bytes
+				writeBlock(stream, dataToWrite, zBlocks, zBlock, &zOffset, m_header.getBlockSizeAlloc());
+				dataToWrite += m_header.getBlockSizeAlloc();
+				zBlock++;
+				entryLength -= m_header.getBlockSizeAlloc();
+			}
+			// write entryLength bytes
+			writeBlock(stream, dataToWrite, zBlocks, zBlock, &zOffset, entryLength);
+			zBlock++;
+			// For each file:
+			// - Store offset in TOC
+			// Remember offset for start of next file
+		}
+
+		uint32_t tocOffset = 0;
+		WRITE_BE_UINT32(tocBuffer + tocOffset, m_header.getMagicNumber()); tocOffset += 4;
+		WRITE_BE_UINT32(tocBuffer + tocOffset, m_header.getVersionNumber()); tocOffset += 4;
+		WRITE_BE_UINT32(tocBuffer + tocOffset, m_header.getCompressionMethod()); tocOffset += 4;
+		WRITE_BE_UINT32(tocBuffer + tocOffset, m_header.getTotalTocSize()); tocOffset += 4;
+		WRITE_BE_UINT32(tocBuffer + tocOffset, m_header.getTocEntrySize()); tocOffset += 4;
+		WRITE_BE_UINT32(tocBuffer + tocOffset, m_header.getNumFiles()); tocOffset += 4;
+		WRITE_BE_UINT32(tocBuffer + tocOffset, m_header.getBlockSizeAlloc()); tocOffset += 4;
+		WRITE_BE_UINT32(tocBuffer + tocOffset, m_header.getArchiveFlags()); tocOffset += 4;
+		for (int i = 0; i < m_header.getNumFiles(); i++) {
+			Entry& entry = m_entries.at(i);
+			for (int j = 0; j < 16; j++) {
+				tocBuffer[tocOffset++ + j] = entry.getMd5()[j];
+			}
+			WRITE_BE_UINT32(tocBuffer + tocOffset, entry.getZIndex()); tocOffset += 4;
+			WRITE_BE_INT40(tocBuffer + tocOffset, entry.getLength()); tocOffset += 5;
+			WRITE_BE_INT40(tocBuffer + tocOffset, entry.getZOffset()); tocOffset += 5;
+		}
+
+		if (m_header.isTocEncrypted()) {
+			// TODO encrypt header
+			printf("encrypt toc\n");
+			char encryptedToc[m_header.getTotalTocSize()];
+			CRijndael rijndael;
+
+			rijndael.MakeKey(PsarcKey, CRijndael::sm_chain0, 32, 16);
+			rijndael.Encrypt((const char *)tocBuffer + 32, encryptedToc, m_header.getTotalTocSize() & ~31, CRijndael::CFB);
+			for (int i = 0; i < 32; i++) {
+				printf("%02x ", (uint8_t)encryptedToc[i]);
+			}
+			printf("\n");
+			printf("tocOffset = %04x\n", tocOffset);
+			for (uint32_t i = 32; i < m_header.getTotalTocSize(); i++) {
+				tocBuffer[i] = encryptedToc[i - 32];
+			}
+		}
+		stream.seek(0);
+		stream.write(tocBuffer, tocSize);
+		printf("zBlockCount = %d\n", zBlockCount);
+
+		free(tocBuffer);
+	}
+	stream.close();
+
+	// TODO Move file fileNameTemp to fileName
+	if (std::rename(fileNameTemp, fileName) < 0) {
+		free(fileNameTemp);
+		printf("Unable to rename output file\n");
+		return false;
+	}
+
+	free(fileNameTemp);
+	return true;
+}
+
+
+void PSARC::setNewAppId(const char *newAppId) {
+	for (uint32_t i = 1; i < m_header.getNumFiles(); i++) {
+		if (strcmp(m_entries.at(i).getName(), "appid.appid") == 0) {
+			printf("entry %d is appid.appid\n", i);
+			char *newData = new char[strlen(newAppId)];
+			for (int i = 0; i < strlen(newAppId); i++) {
+				newData[i] = newAppId[i];
+			}
+			free(m_entries.at(i).getName());
+			m_entries.at(i).setName(newData);
+			m_entries.at(i).setLength(strlen(newAppId));
+		}
+	}
+}
+
+
 void PSARC::extractAllFiles() {
 	for (uint32_t i = 1; i < m_header.getNumFiles(); i++) {
-		exportRawEntryData(m_entries.at(i), baseDir);
+		extractRawEntryData(m_entries.at(i), baseDir);
 	}
 }
 

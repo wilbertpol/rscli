@@ -1,10 +1,11 @@
-#ifndef PSARC_H__
-#define PSARC_H__
+#ifndef PSARC_PLATFORM_H__
+#define PSARC_PLATFORM_H__
 
 typedef enum platform {
-  PLATFORM_UNKNOWN,
+  PLATFORM_NONE = 0,
   PLATFORM_MAC,
-  PLATFORM_PC
+  PLATFORM_PC,
+  PLATFORM_UNKNOWN
 } platform;
 
-#endif
+#endif // PSARC_PLATFORM_H__

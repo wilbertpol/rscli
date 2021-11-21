@@ -62,6 +62,41 @@ inline uint64_t READ_BE_INT40(const char *ptr) {
 	return READ_BE_INT40((uint8_t*)ptr);
 }
 
+
+inline void WRITE_BE_UINT16(uint8_t *ptr, uint16_t data) {
+	ptr[0] = (data >> 8) & 0xff;
+	ptr[1] = data & 0xff;
+}
+
+inline void WRITE_BE_INT24(uint8_t *ptr, uint32_t data) {
+	ptr[0] = (data >> 16) & 0xff;
+	ptr[1] = (data >> 8) & 0xff;
+	ptr[2] = data & 0xff;
+}
+
+inline void WRITE_LE_UINT32(uint8_t *ptr, uint32_t data) {
+	ptr[3] = (data >> 24) & 0xff;
+	ptr[2] = (data >> 16) & 0xff;
+	ptr[1] = (data >> 8) & 0xff;
+	ptr[0] = data & 0xff;
+}
+
+inline void WRITE_BE_UINT32(uint8_t *ptr, uint32_t data) {
+	ptr[0] = (data >> 24) & 0xff;
+	ptr[1] = (data >> 16) & 0xff;
+	ptr[2] = (data >> 8) & 0xff;
+	ptr[3] = data & 0xff;
+}
+
+inline void WRITE_BE_INT40(uint8_t *ptr, uint64_t data) {
+	ptr[0] = (data >> 32) & 0xff;
+	ptr[1] = (data >> 24) & 0xff;
+	ptr[2] = (data >> 16) & 0xff;
+	ptr[3] = (data >> 8) & 0xff;
+	ptr[4] = data & 0xff;
+}
+
+
 inline int mkpath(const char *s, mode_t mode){
 	char *q, *r = NULL, *path = NULL, *up = NULL;
 	int rv;
